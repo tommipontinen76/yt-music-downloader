@@ -31,13 +31,14 @@ To run the script from source, you will need:
 
 - **Python 3.8+**
 - **FFmpeg:** Required for audio extraction and thumbnail embedding.
-    - **Linux:** `sudo apt install ffmpeg`
+    - **Linux:** `sudo apt install ffmpeg` or install from your manage manager e.g. `yay -S ffmpeg`
     - **macOS:** `brew install ffmpeg`
     - **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to your system PATH.
 - **Dependencies:**
     ```bash
     pip install PyQt6 yt-dlp
     ```
+    Or 
 
 ## 🚀 Usage
 
