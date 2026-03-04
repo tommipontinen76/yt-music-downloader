@@ -27,3 +27,6 @@ dist/
 *.tmp
 *~
 .DS_Store
+*.zst
+/src
+/pkg
