@@ -8,6 +8,7 @@ import subprocess
 import sys
 import os
 import shutil
+import re
 from pathlib import Path
 
 def run_command(command, description):
@@ -29,6 +30,22 @@ def main():
     if not main_script.exists():
         print(f"Error: {main_script} not found!")
         sys.exit(1)
+
+    # 1.5 Extract Version from main script
+    version = "0.1" # Default fallback
+    try:
+        with open(main_script, 'r', encoding='utf-8') as f:
+            content = f.read()
+            # Look for VERSION = "..." or similar, but since it's hardcoded in the UI:
+            # We'll search for the string "v0.1" or similar in the title
+            version_match = re.search(r'YT Music Downloader v([\d\.]+)', content)
+            if version_match:
+                version = version_match.group(1)
+                print(f"Detected version: {version}")
+    except Exception as e:
+        print(f"Warning: Could not detect version from {main_script}, using default {version}")
+    
+    binary_name = f"yt-music-downloader-v{version}"
 
     # 2. Setup Virtual Environment
     if not venv_dir.exists():
@@ -54,7 +71,7 @@ def main():
         str(pyinstaller_path),
         "--onefile",
         "--windowed",
-        "--name", "ytmusic-downloader",
+        "--name", binary_name,
         "--clean",
         str(main_script)
     ]
@@ -63,7 +80,7 @@ def main():
 
     # 5. Cleanup and Result
     dist_dir = script_dir / "dist"
-    binary_path = dist_dir / "ytmusic-downloader"
+    binary_path = dist_dir / binary_name
     
     if binary_path.exists():
         print("==================================================")
@@ -71,7 +88,7 @@ def main():
         print(f" Binary location: {binary_path}")
         print("==================================================")
         print("\nYou can now run the application using:")
-        print(f"./dist/ytmusic-downloader")
+        print(f"./dist/{binary_name}")
     else:
         print("Error: Binary was not created. Check the output above.")
 

@@ -7,6 +7,7 @@ A PyQt6 GUI for downloading YouTube Music playlists via yt-dlp + ffmpeg.
 import sys
 import os
 import threading
+import re
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -355,6 +356,8 @@ class DownloadWorker(QObject):
         retries = int(self.options.get("retries", 10) or 10)
         ratelimit_kib = int(self.options.get("ratelimit_kib", 0) or 0)
         parallel_downloads = int(self.options.get("parallel_downloads", 1) or 1)
+        po_token = self.options.get("po_token", "").strip()
+        enable_remote_components = bool(self.options.get("enable_remote_components", True))
 
         try:
             # 1) Fetch playlist info FIRST (so we can create a playlist-named subfolder)
@@ -378,6 +381,12 @@ class DownloadWorker(QObject):
                 }
                 if cookies_browser and cookies_browser != "None":
                     info_opts["cookiesfrombrowser"] = (cookies_browser,)
+                
+                if enable_remote_components:
+                    info_opts["remote_components"] = ["ejs:github"]
+                
+                if po_token:
+                    info_opts["extractor_args"] = {"youtube": {"po_token": [po_token]}}
                 
                 with yt_dlp.YoutubeDL(info_opts) as ydl:
                     info = ydl.extract_info(self.url, download=False)
@@ -432,6 +441,7 @@ class DownloadWorker(QObject):
                 "logger": self._YDLLogger(self),
                 "retries": retries,
                 "writethumbnail": embed_thumbnail,
+                "ignoreerrors": True, # don't stop the whole playlist if one song fails
             }
 
             if parse_extra_metadata:
@@ -446,6 +456,15 @@ class DownloadWorker(QObject):
 
             if cookies_browser and cookies_browser != "None":
                 ydl_opts["cookiesfrombrowser"] = (cookies_browser,)
+
+            if enable_remote_components:
+                ydl_opts["remote_components"] = ["ejs:github"]
+
+            if po_token:
+                # Merge with existing extractor_args if any (though currently none)
+                if "extractor_args" not in ydl_opts:
+                    ydl_opts["extractor_args"] = {}
+                ydl_opts["extractor_args"]["youtube"] = {"po_token": [po_token]}
 
             if skip_existing:
                 ydl_opts["nooverwrites"] = True
@@ -584,14 +603,13 @@ class DownloadWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("YT Music Downloader")
-        self.setMinimumSize(680, 720)
-        self.resize(720, 760)
+        self.setWindowTitle("YT Music Downloader v0.2")
+        self.setMinimumSize(800, 750)
+        self.resize(1451, 1047)
 
         # Settings: Using QSettings to save/load user choices
         # On Linux: ~/.config/yt-music-downloader/ytmusic-downloader.conf
         # On Windows: Documents/yt-music-downloader/ytmusic-downloader.ini
-        # On macOS: ~/Library/Preferences/yt-music-downloader/ytmusic-downloader.ini
         if sys.platform == "win32":
             # On Windows, save settings in the Documents folder as requested
             docs_dir = os.path.join(os.path.expanduser("~"), "Documents")
@@ -609,31 +627,25 @@ class MainWindow(QMainWindow):
         self._ui_scale = 1.0
         self._build_ui()
         self._load_settings()
-        self.setStyleSheet(STYLE)
 
     def _apply_ui_scale(self, percent: int):
         """
-        Scale the UI by adjusting the application's default font size.
-        Percent is an int like 100, 125, etc.
+        Scale the UI by adjusting the application's stylesheet font-size.
         """
         percent = max(75, min(150, int(percent)))
         self._ui_scale = percent / 100.0
 
-        app = QApplication.instance()
-        if app is None:
-            return
-
-        base = app.font()
-        base_size = base.pointSizeF()
-        if base_size <= 0:
-            base_size = 10.0  # safe fallback
-
-        f = QFont(base)
-        f.setPointSizeF(base_size * self._ui_scale)
-        app.setFont(f)
-
+        # Update the value label if it exists
         if hasattr(self, "ui_scale_value_label"):
             self.ui_scale_value_label.setText(f"{percent}%")
+
+        # Dynamically update the stylesheet with the new base font sizes
+        def scale_match(match):
+            size = int(match.group(1))
+            return f"font-size: {int(size * self._ui_scale)}px;"
+        
+        final_style = re.sub(r"font-size:\s*(\d+)px;", scale_match, STYLE)
+        self.setStyleSheet(final_style)
 
     def _browse_default_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -659,7 +671,7 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(30, 35, 30, 30)
         header_layout.setSpacing(4)
 
-        title = QLabel("YT MUSIC DOWNLOADER")
+        title = QLabel("YT MUSIC DOWNLOADER v0.2")
         title.setObjectName("titleLabel")
         header_layout.addWidget(title)
 
@@ -827,6 +839,11 @@ class MainWindow(QMainWindow):
         self.parse_extra_metadata.setChecked(True)
         meta_form.addRow("", self.parse_extra_metadata)
         
+        self.enable_remote_components = QCheckBox("Enable remote challenge solver (EJS)")
+        self.enable_remote_components.setToolTip("Recommended for avoiding 'n challenge' failures and JS challenges.")
+        self.enable_remote_components.setChecked(True)
+        meta_form.addRow("", self.enable_remote_components)
+        
         self.filename_tmpl = QLineEdit("%(playlist_index)s - %(artist,uploader)s - %(track,title)s.%(ext)s")
         meta_form.addRow("Filename Pattern:", self.filename_tmpl)
         settings_scroll_layout.addWidget(meta_group)
@@ -848,6 +865,16 @@ class MainWindow(QMainWindow):
         self.cookies_browser = QComboBox()
         self.cookies_browser.addItems(["None", "chrome", "firefox", "edge", "safari", "opera", "vivaldi"])
         perf_form.addRow("Cookies from browser:", self.cookies_browser)
+        
+        self.po_token = QLineEdit()
+        self.po_token.setPlaceholderText("web_music.gvs+XXX")
+        self.po_token.setToolTip("Manually pass a GVS PO Token for web_music client (prevents HTTP 403 errors).")
+        perf_form.addRow("YouTube PO Token:", self.po_token)
+        
+        token_guide = QLabel("<a href='https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide' style='color: #7c6af5;'>PO Token Guide & Generator</a>")
+        token_guide.setOpenExternalLinks(True)
+        token_guide.setStyleSheet("font-size: 11px;")
+        perf_form.addRow("", token_guide)
         
         settings_scroll_layout.addWidget(perf_group)
 
@@ -916,6 +943,7 @@ class MainWindow(QMainWindow):
         self.embed_metadata.setChecked(self.settings.value("embed_metadata", True, type=bool))
         self.embed_thumbnail.setChecked(self.settings.value("embed_thumbnail", False, type=bool))
         self.parse_extra_metadata.setChecked(self.settings.value("parse_extra_metadata", True, type=bool))
+        self.enable_remote_components.setChecked(self.settings.value("enable_remote_components", True, type=bool))
         self.filename_tmpl.setText(self.settings.value("filename_tmpl", "%(playlist_index)s - %(artist,uploader)s - %(track,title)s.%(ext)s"))
         
         fmt = self.settings.value("format", "mp3")
@@ -925,6 +953,7 @@ class MainWindow(QMainWindow):
         
         self.parallel_downloads.setValue(int(self.settings.value("parallel_downloads", 1)))
         self.cookies_browser.setCurrentText(self.settings.value("cookies_browser", "None"))
+        self.po_token.setText(self.settings.value("po_token", ""))
         
         scale = int(self.settings.value("ui_scale", 100))
         self.ui_scale_slider.setValue(scale)
@@ -937,11 +966,13 @@ class MainWindow(QMainWindow):
         self.settings.setValue("embed_metadata", self.embed_metadata.isChecked())
         self.settings.setValue("embed_thumbnail", self.embed_thumbnail.isChecked())
         self.settings.setValue("parse_extra_metadata", self.parse_extra_metadata.isChecked())
+        self.settings.setValue("enable_remote_components", self.enable_remote_components.isChecked())
         self.settings.setValue("filename_tmpl", self.filename_tmpl.text())
         self.settings.setValue("format", self.format_combo.currentText())
         self.settings.setValue("quality", self.quality_combo.currentText())
         self.settings.setValue("parallel_downloads", self.parallel_downloads.value())
         self.settings.setValue("cookies_browser", self.cookies_browser.currentText())
+        self.settings.setValue("po_token", self.po_token.text().strip())
         self.settings.setValue("ui_scale", self.ui_scale_slider.value())
         self.settings.sync()
 
@@ -975,6 +1006,8 @@ class MainWindow(QMainWindow):
             "filename_template": self.filename_tmpl.text(),
             "parallel_downloads": self.parallel_downloads.value(),
             "cookies_browser": self.cookies_browser.currentText(),
+            "po_token": self.po_token.text().strip(),
+            "enable_remote_components": self.enable_remote_components.isChecked(),
         }
 
         self.download_btn.setEnabled(False)
