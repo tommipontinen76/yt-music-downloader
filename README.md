@@ -57,7 +57,7 @@ A helper script is provided to compile the application into a standalone Linux b
 python3 linux-binary-compile.py
 ```
 
-This will create a single executable file in the `dist/` directory (e.g., `yt-music-downloader-v0.2`).
+This will create a single executable file in the `dist/` directory (e.g., `yt-music-downloader-v0-2`).
 
 ## ⚙️ Settings Location
 

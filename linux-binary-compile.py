@@ -45,7 +45,10 @@ def main():
     except Exception as e:
         print(f"Warning: Could not detect version from {main_script}, using default {version}")
     
-    binary_name = f"yt-music-downloader-v{version}"
+    # Use a safer binary name that won't be misidentified as a man page (e.g., avoid ending in .1, .2, etc.)
+    # We'll use a dash instead of a dot for the version in the filename to avoid mime-type issues in file managers
+    safe_version = version.replace(".", "-")
+    binary_name = f"yt-music-downloader-v{safe_version}"
 
     # 2. Setup Virtual Environment
     if not venv_dir.exists():
