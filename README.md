@@ -38,7 +38,10 @@ To run the script from source, you will need:
     ```bash
     pip install PyQt6 yt-dlp
     ```
-    Or 
+    Or from your package manager (e.g. on Arch)
+    ```bash
+    yay -S python-pyqt6 yt-dlp
+    ```
 
 ## 🚀 Usage
 
