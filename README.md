@@ -38,11 +38,11 @@ To run the script from source, you will need:
     - **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to your system PATH.
 - **Dependencies:**
     ```bash
-    pip install PyQt6 yt-dlp
+    pip install PyQt6 yt-dlp mutagen
     ```
     Or from your package manager (e.g. on Arch)
     ```bash
-    yay -S python-pyqt6 yt-dlp
+    yay -S python-pyqt6 yt-dlp python-mutagen
     ```
 
 ## 🚀 Usage
@@ -65,6 +65,18 @@ python3 linux-binary-compile.py
 ```
 
 This will create a single executable file in the `dist/` directory (e.g., `yt-music-downloader-v0-2`).
+
+## 📦 Installation (Arch Linux / AUR)
+
+For Arch Linux users, a `PKGBUILD` is provided. You can build and install the package using `makepkg`:
+
+1.  **Clone the repository or download the source.**
+2.  **Navigate to the directory.**
+3.  **Build and install:**
+    ```bash
+    makepkg -si
+    ```
+This will install the application system-wide with all required dependencies (`python-pyqt6`, `yt-dlp`, `ffmpeg`). You can then launch it from your application menu or by running `yt-music-downloader` in the terminal.
 
 ## ⚙️ Settings Location
 

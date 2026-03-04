@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=YT Music Downloader
+Comment=Download YouTube Music playlists and individual tracks as audio
+Exec=yt-music-downloader
+Icon=folder-music
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Network;
+Keywords=youtube;music;download;downloader;yt-dlp;

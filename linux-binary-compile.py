@@ -60,7 +60,7 @@ def main():
 
     # 3. Install Dependencies
     run_command([str(pip_path), "install", "--upgrade", "pip"], "Upgrading pip")
-    run_command([str(pip_path), "install", "pyinstaller", "PyQt6", "yt-dlp"], "Installing dependencies")
+    run_command([str(pip_path), "install", "pyinstaller", "PyQt6", "yt-dlp", "mutagen"], "Installing dependencies")
 
     # 4. Run PyInstaller
     # Flags explained:
