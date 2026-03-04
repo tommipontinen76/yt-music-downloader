@@ -1,6 +1,9 @@
 # YT Music Downloader v0.2
 
 A modern, fast, and feature-rich PyQt6 GUI for downloading YouTube Music playlists and individual tracks as high-quality audio files. This tool leverages the power of `yt-dlp` and `ffmpeg` to provide a seamless downloading experience.
+macOS version is unsupported but I don't see why it wouldn't work.
+
+Made with AI for my own use, expect some bugs.
 
 ![Version](https://img.shields.io/badge/version-0.2-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
@@ -30,12 +33,16 @@ To run the script from source, you will need:
 
 - **Python 3.8+**
 - **FFmpeg:** Required for audio extraction and thumbnail embedding.
-    - **Linux:** `sudo apt install ffmpeg`
+    - **Linux:** `sudo apt install ffmpeg` or install from your manage manager e.g. `yay -S ffmpeg`
     - **macOS:** `brew install ffmpeg`
     - **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to your system PATH.
 - **Dependencies:**
     ```bash
     pip install PyQt6 yt-dlp
+    ```
+    Or from your package manager (e.g. on Arch)
+    ```bash
+    yay -S python-pyqt6 yt-dlp
     ```
 
 ## 🚀 Usage
