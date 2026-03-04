@@ -56,15 +56,27 @@ To run the script from source, you will need:
 4. **Set Destination:** Pick a folder where you want your music saved.
 5. **Start:** Click **START DOWNLOAD** and watch the magic happen!
 
-## 📦 Compilation (Linux)
+## 📦 Compilation
 
-A helper script is provided to compile the application into a standalone Linux binary:
+Helper scripts are provided to compile the application into a standalone binary for different platforms. Note that you must run each script on its respective operating system.
 
+### Linux
 ```bash
 python3 linux-binary-compile.py
 ```
+This will create a single executable file in the `dist/` directory.
 
-This will create a single executable file in the `dist/` directory (e.g., `yt-music-downloader-v0-2`).
+### Windows
+```bash
+python windows-binary-compile.py
+```
+This will create a standalone `.exe` file in the `dist/` directory.
+
+### macOS
+```bash
+python3 macos-binary-compile.py
+```
+This will create a macOS App Bundle (`.app`) in the `dist/` directory.
 
 ## 📦 Installation (Arch Linux / AUR)
 

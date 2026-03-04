@@ -1,3 +1,4 @@
+#!/usr/bin/env xdg-open
 [Desktop Entry]
 Name=YT Music Downloader
 Comment=Download music from YouTube Music

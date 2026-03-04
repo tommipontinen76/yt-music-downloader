@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Compilation script to create a standalone Linux binary for YT Music Downloader.
-This script uses PyInstaller to bundle the application and its dependencies.
+Compilation script to create a standalone macOS App Bundle (.app) for YT Music Downloader.
+Note: This script should be run on a macOS machine.
+It uses PyInstaller to bundle the application and its dependencies.
 """
 
 import subprocess
 import sys
 import os
-import shutil
 import re
 from pathlib import Path
 
@@ -23,27 +23,25 @@ def run_command(command, description):
 
 def main():
     # 0. Check Platform
-    if sys.platform != "linux":
-        print("Error: This script must be run on Linux.")
+    if sys.platform != "darwin":
+        print("Error: This script must be run on macOS to create a .app bundle.")
         print(f"Current platform: {sys.platform}")
         sys.exit(1)
 
     # 1. Define paths
     script_dir = Path(__file__).parent.absolute()
     main_script = script_dir / "ytmusic-downloader.py"
-    venv_dir = script_dir / "venv"
+    venv_dir = script_dir / "venv-mac"
     
     if not main_script.exists():
         print(f"Error: {main_script} not found!")
         sys.exit(1)
 
     # 1.5 Extract Version from main script
-    version = "0.1" # Default fallback
+    version = "0.2" # Current project version
     try:
         with open(main_script, 'r', encoding='utf-8') as f:
             content = f.read()
-            # Look for VERSION = "..." or similar, but since it's hardcoded in the UI:
-            # We'll search for the string "v0.1" or similar in the title
             version_match = re.search(r'YT Music Downloader v([\d\.]+)', content)
             if version_match:
                 version = version_match.group(1)
@@ -51,10 +49,9 @@ def main():
     except Exception as e:
         print(f"Warning: Could not detect version from {main_script}, using default {version}")
     
-    # Use a safer binary name that won't be misidentified as a man page (e.g., avoid ending in .1, .2, etc.)
-    # We'll use a dash instead of a dot for the version in the filename to avoid mime-type issues in file managers
+    # macOS binary and app bundle name
     safe_version = version.replace(".", "-")
-    binary_name = f"yt-music-downloader-linux-v{safe_version}"
+    app_name = f"yt-music-downloader-mac-v{safe_version}"
 
     # 2. Setup Virtual Environment
     if not venv_dir.exists():
@@ -69,37 +66,37 @@ def main():
     run_command([str(pip_path), "install", "pyinstaller", "PyQt6", "yt-dlp", "mutagen"], "Installing dependencies")
 
     # 4. Run PyInstaller
-    # Flags explained:
-    # --onefile: Create a single executable file.
-    # --windowed: Do not show a console window (important for GUI apps).
-    # --name: Set the output binary name.
-    # --clean: Clean PyInstaller cache and remove temporary files before building.
-    # --hidden-import: Ensure yt-dlp is correctly included if dynamic imports fail.
+    # Flags:
+    # --windowed: Create a Mac .app bundle
+    # --name: The name of the app
+    # --clean: Clean cache
+    # --target-arch: For universal binary support (optional: "universal2", "x86_64", "arm64")
+    
+    # On macOS, --windowed (or -w) combined with --name results in an app bundle.
+    # We do NOT use --onefile here for the app bundle because --windowed handles the bundle structure.
     
     build_command = [
         str(pyinstaller_path),
-        "--onefile",
         "--windowed",
-        "--name", binary_name,
+        "--name", app_name,
         "--clean",
         str(main_script)
     ]
 
-    run_command(build_command, "Compiling to Linux binary")
+    run_command(build_command, "Compiling to macOS App Bundle")
 
-    # 5. Cleanup and Result
+    # 5. Result
     dist_dir = script_dir / "dist"
-    binary_path = dist_dir / binary_name
+    app_bundle_path = dist_dir / f"{app_name}.app"
     
-    if binary_path.exists():
+    if app_bundle_path.exists():
         print("==================================================")
         print(" COMPILATION COMPLETE!")
-        print(f" Binary location: {binary_path}")
+        print(f" App Bundle location: {app_bundle_path}")
         print("==================================================")
-        print("\nYou can now run the application using:")
-        print(f"./dist/{binary_name}")
+        print("\nYou can now find the .app bundle in the 'dist' folder.")
     else:
-        print("Error: Binary was not created. Check the output above.")
+        print("Error: App bundle was not created. Check the output above.")
 
 if __name__ == "__main__":
     main()
