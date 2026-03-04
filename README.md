@@ -3,6 +3,8 @@
 A modern, fast, and feature-rich PyQt6 GUI for downloading YouTube Music playlists and individual tracks as high-quality audio files. This tool leverages the power of `yt-dlp` and `ffmpeg` to provide a seamless downloading experience.
 macOS version is unsupported but I don't see why it wouldn't work.
 
+Made with AI for my own use, expect some bugs.
+
 ![Version](https://img.shields.io/badge/version-0.2-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
