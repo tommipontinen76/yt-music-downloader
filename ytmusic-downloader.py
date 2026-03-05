@@ -341,6 +341,26 @@ class DownloadWorker(QObject):
         h, m = divmod(m, 60)
         return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:d}:{s:02d}"
 
+    def _inject_index(self, tmpl, index):
+        # Explicitly inject playlist_index into the template to ensure it's preserved
+        # even after yt-dlp re-extraction in process_ie_result.
+        for key in ['playlist_index', 'playlist_autonumber']:
+            # This regex matches %(key) followed by optional formatting, ending with a type character
+            pattern = r'%\(' + key + r'\)([-+ #0]*\d*[diouxXeEfFgGcrsat])'
+            
+            def repl(match):
+                fmt = match.group(1)
+                try:
+                    return ("%" + fmt) % index
+                except Exception:
+                    return str(index)
+            
+            tmpl = re.sub(pattern, repl, tmpl)
+            # Handle cases that didn't match the standard format (e.g. malformed or simple %(key)s)
+            tmpl = tmpl.replace(f'%({key})s', str(index))
+            tmpl = tmpl.replace(f'%({key})', str(index))
+        return tmpl
+
     def run(self):
         if not YT_DLP_AVAILABLE:
             self.finished.emit(False, "yt-dlp is not installed. Run: pip install yt-dlp")
@@ -445,19 +465,30 @@ class DownloadWorker(QObject):
 
             outtmpl = str(Path(self.output_dir) / filename_template)
 
-            postprocessors = [
-                {
+            # 2.5) Prepare for skip_existing check
+            # We determine the expected extension once here
+            expected_ext = self.audio_format
+            if expected_ext == "bestaudio":
+                expected_ext = "mka" if embed_thumbnail else None
+
+            postprocessors = []
+            if self.audio_format != "bestaudio":
+                postprocessors.append({
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": self.audio_format,
                     "preferredquality": q_value,
-                }
-            ]
+                })
+
             if embed_metadata:
                 postprocessors.append({"key": "FFmpegMetadata"})
             
             if embed_thumbnail:
                 # Ensure thumbnail is in a compatible format (jpg) before embedding
                 postprocessors.append({"key": "FFmpegThumbnailsConvertor", "format": "jpg"})
+                # If bestaudio is used, yt-dlp might download webm which doesn't support embedding.
+                # In that case, we remux it to mka (Matroska Audio) which supports it losslessly.
+                if self.audio_format == "bestaudio":
+                    postprocessors.append({"key": "FFmpegVideoConvertor", "preferedformat": "mka"})
                 # Requires ffmpeg, and works best when yt-dlp can retrieve a thumbnail
                 postprocessors.append({"key": "EmbedThumbnail"})
 
@@ -472,7 +503,7 @@ class DownloadWorker(QObject):
                 "no_warnings": False,
                 "logger": self._YDLLogger(self),
                 "retries": retries,
-                "writethumbnail": embed_thumbnail,
+                "writethumbnail": False, # Initially False to prevent download during extraction
                 "ignoreerrors": True, # don't stop the whole playlist if one song fails
             }
 
@@ -517,30 +548,187 @@ class DownloadWorker(QObject):
                 from concurrent.futures import ThreadPoolExecutor
                 self.log.emit(f"🚀 Parallel mode enabled: {parallel_downloads} concurrent downloads")
                 
-                # We need a separate YDL instance per thread if we want true parallelism 
-                # or we use the 'concurrent_fragment_downloads' for speed but here we want parallel tracks.
-                # Actually, yt-dlp doesn't support multiple tracks in parallel in one ydl.download() call.
-                # So we must call ydl.download() on each entry.
-                
-                def download_entry(entry):
+                def download_entry(data):
+                    index, entry = data
                     if self._cancelled:
                         return
                     
+                    # Ensure playlist_index is present for consistent filenames
+                    # We always set it based on its index in the playlist to be sure
+                    entry["playlist_index"] = index + 1
+
                     # Create a new ydl_opts for this specific entry to avoid state issues
                     entry_opts = ydl_opts.copy()
-                    # We don't want it to try to download the whole playlist, just this entry
                     entry_opts["noplaylist"] = True
                     
+                    # Inject index directly into outtmpl to survive re-extraction
+                    entry_opts["outtmpl"] = self._inject_index(ydl_opts["outtmpl"], index + 1)
+                    
                     with yt_dlp.YoutubeDL(entry_opts) as ydl_inner:
-                        # Using process_ie_result instead of download([url]) to preserve 
-                        # the playlist metadata (like playlist_index) already extracted.
-                        ydl_inner.process_ie_result(entry, download=True)
+                        try:
+                            # 1) Get full metadata first (without downloading thumbnails)
+                            # This ensures we have enough info for prepare_filename to be accurate
+                            original_url = entry.get('url') or entry.get('webpage_url') or entry.get('id')
+                            full_entry = ydl_inner.extract_info(original_url, download=False)
+                            if not full_entry:
+                                raise Exception("Could not extract metadata")
+                            
+                            # Merge full entry back into entry for consistency
+                            entry.update(full_entry)
+                            entry["playlist_index"] = index + 1
+                            
+                            # Ensure we have a valid YouTube URL for processing (not a direct googlevideo.com link)
+                            if 'googlevideo.com' in entry.get('url', ''):
+                                entry['url'] = entry.get('webpage_url') or original_url
+
+                            if skip_existing:
+                                filename = ydl_inner.prepare_filename(entry)
+                                # If we have an expected extension, check for that too
+                                if expected_ext and "%(ext)s" in entry_opts["outtmpl"]:
+                                    ext_filename = filename.rsplit(".", 1)[0] + "." + expected_ext
+                                    if os.path.exists(ext_filename):
+                                        filename = ext_filename
+                                
+                                if os.path.exists(filename):
+                                    self.log.emit(f"  ⏭  Skipping (already exists): {os.path.basename(filename)}")
+                                    with self._progress_lock:
+                                        self._current_track += 1
+                                        current = self._current_track
+                                        total = self._total_tracks
+                                    self.track_started.emit(os.path.basename(filename), current, total)
+                                    return
+                                
+                                # Fallback: check with other possible audio extensions if bestaudio is used
+                                if expected_ext == "mka":
+                                    for alt_ext in ["mp3", "m4a", "opus", "flac", "wav"]:
+                                        alt_filename = filename.rsplit(".", 1)[0] + "." + alt_ext
+                                        if os.path.exists(alt_filename):
+                                            self.log.emit(f"  ⏭  Skipping (already exists as {alt_ext}): {os.path.basename(alt_filename)}")
+                                            with self._progress_lock:
+                                                self._current_track += 1
+                                                current = self._current_track
+                                                total = self._total_tracks
+                                            self.track_started.emit(os.path.basename(alt_filename), current, total)
+                                            return
+
+                            # 2) Enable thumbnails if requested and proceed to download
+                            if embed_thumbnail:
+                                ydl_inner.params['writethumbnail'] = True
+
+                            result = ydl_inner.process_ie_result(entry, download=True)
+                            # If result is None, it usually means ignoreerrors was triggered or video is unavailable
+                            if result is None:
+                                title = entry.get('title') or entry.get('id') or "Unknown track"
+                                self.log.emit(f"  ✖  Failed (unavailable): {title}")
+                                with self._progress_lock:
+                                    self._current_track += 1
+                                    current = self._current_track
+                                    total = self._total_tracks
+                                self.track_started.emit(title, current, total)
+                                return
+                        except Exception as e:
+                            title = entry.get('title') or entry.get('id') or "Unknown track"
+                            self.log.emit(f"  ✖  Error processing {title}: {e}")
+                            with self._progress_lock:
+                                self._current_track += 1
+                                current = self._current_track
+                                total = self._total_tracks
+                            self.track_started.emit(title, current, total)
 
                 with ThreadPoolExecutor(max_workers=parallel_downloads) as executor:
-                    list(executor.map(download_entry, entries))
+                    list(executor.map(download_entry, enumerate(entries)))
             else:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([self.url])
+                # Even for serial downloads, we process entries one by one if skip_existing is enabled
+                # to ensure we can skip them correctly before any thumbnail download starts.
+                if skip_existing:
+                    for i, entry in enumerate(entries):
+                        if self._cancelled: break
+                        
+                        # Ensure playlist_index is present
+                        # We always set it based on its index in the playlist to be sure
+                        entry["playlist_index"] = i + 1
+
+                        entry_opts = ydl_opts.copy()
+                        entry_opts["noplaylist"] = True
+                        
+                        # Inject index directly into outtmpl to survive re-extraction
+                        entry_opts["outtmpl"] = self._inject_index(ydl_opts["outtmpl"], i + 1)
+                        
+                        with yt_dlp.YoutubeDL(entry_opts) as ydl_inner:
+                            try:
+                                # 1) Get full metadata first (without downloading thumbnails)
+                                original_url = entry.get('url') or entry.get('webpage_url') or entry.get('id')
+                                full_entry = ydl_inner.extract_info(original_url, download=False)
+                                if not full_entry:
+                                    raise Exception("Could not extract metadata")
+                                
+                                entry.update(full_entry)
+                                entry["playlist_index"] = i + 1
+                                
+                                # Ensure we have a valid YouTube URL for processing (not a direct googlevideo.com link)
+                                if 'googlevideo.com' in entry.get('url', ''):
+                                    entry['url'] = entry.get('webpage_url') or original_url
+
+                                filename = ydl_inner.prepare_filename(entry)
+                                # If we have an expected extension, check for that too
+                                if expected_ext and "%(ext)s" in entry_opts["outtmpl"]:
+                                    ext_filename = filename.rsplit(".", 1)[0] + "." + expected_ext
+                                    if os.path.exists(ext_filename):
+                                        filename = ext_filename
+
+                                if os.path.exists(filename):
+                                    self.log.emit(f"  ⏭  Skipping (already exists): {os.path.basename(filename)}")
+                                    with self._progress_lock:
+                                        self._current_track += 1
+                                        current = self._current_track
+                                        total = self._total_tracks
+                                    self.track_started.emit(os.path.basename(filename), current, total)
+                                    continue
+
+                                # Fallback: check with other possible audio extensions if bestaudio is used
+                                if expected_ext == "mka":
+                                    for alt_ext in ["mp3", "m4a", "opus", "flac", "wav"]:
+                                        alt_filename = filename.rsplit(".", 1)[0] + "." + alt_ext
+                                        if os.path.exists(alt_filename):
+                                            self.log.emit(f"  ⏭  Skipping (already exists as {alt_ext}): {os.path.basename(alt_filename)}")
+                                            with self._progress_lock:
+                                                self._current_track += 1
+                                                current = self._current_track
+                                                total = self._total_tracks
+                                            self.track_started.emit(os.path.basename(alt_filename), current, total)
+                                            break
+                                    else:
+                                        # only continue if break was not hit (i.e. no alt file found)
+                                        pass
+                                    if self._current_track > i: # if we incremented it, we skipped
+                                        continue
+                                
+                                # 2) Enable thumbnails if requested and proceed to download
+                                if embed_thumbnail:
+                                    ydl_inner.params['writethumbnail'] = True
+
+                                result = ydl_inner.process_ie_result(entry, download=True)
+                                if result is None:
+                                    title = entry.get('title') or entry.get('id') or "Unknown track"
+                                    self.log.emit(f"  ✖  Failed (unavailable): {title}")
+                                    with self._progress_lock:
+                                        self._current_track += 1
+                                        current = self._current_track
+                                        total = self._total_tracks
+                                    self.track_started.emit(title, current, total)
+                                    continue
+                            except Exception as e:
+                                title = entry.get('title') or entry.get('id') or "Unknown track"
+                                self.log.emit(f"  ✖  Error processing {title}: {e}")
+                                with self._progress_lock:
+                                    self._current_track += 1
+                                    current = self._current_track
+                                    total = self._total_tracks
+                                self.track_started.emit(title, current, total)
+                                continue
+                else:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([self.url])
 
         except Exception as e:
             if self._cancelled:
@@ -781,7 +969,7 @@ class MainWindow(QMainWindow):
         fmt_group = QGroupBox("Audio Format")
         fmt_layout = QVBoxLayout(fmt_group)
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["mp3", "m4a", "aac", "wav", "flac", "opus"])
+        self.format_combo.addItems(["mp3", "m4a", "aac", "wav", "flac", "opus", "bestaudio"])
         self.format_combo.currentTextChanged.connect(self._on_format_changed)
         fmt_layout.addWidget(self.format_combo)
         settings_row.addWidget(fmt_group)
@@ -983,7 +1171,9 @@ class MainWindow(QMainWindow):
 
     def _update_quality_options(self, fmt):
         self.quality_combo.clear()
-        if fmt in ["wav", "flac"]:
+        if fmt == "bestaudio":
+            self.quality_combo.addItems(["Auto (Best)"])
+        elif fmt in ["wav", "flac"]:
             self.quality_combo.addItems(["Lossless"])
         elif fmt == "opus":
             self.quality_combo.addItems(["Best", "192 kbps", "128 kbps", "Worst"])
