@@ -38,11 +38,11 @@ To run the script from source, you will need:
     - **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to your system PATH.
 - **Dependencies:**
     ```bash
-    pip install PyQt6 yt-dlp mutagen
+    pip install PyQt6 yt-dlp mutagen bgutil-ytdlp-pot-provider
     ```
     Or from your package manager (e.g. on Arch)
     ```bash
-    yay -S python-pyqt6 yt-dlp python-mutagen
+    yay -S python-pyqt6 yt-dlp python-mutagen python-bgutil-ytdlp-pot-provider
     ```
 
 ## 🚀 Usage
