@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QComboBox, QFileDialog,
     QProgressBar, QTextEdit, QFrame, QSizePolicy, QSlider,
-    QGroupBox, QSpacerItem, QCheckBox, QTabWidget, QFormLayout, QSpinBox
+    QGroupBox, QSpacerItem, QCheckBox, QTabWidget, QFormLayout, QSpinBox,
+    QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, QSettings, QUrl
 from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QDesktopServices
@@ -121,6 +122,37 @@ QPushButton#downloadBtn:pressed {
 QPushButton#downloadBtn:disabled {
     background-color: #2a2640;
     color: #5a5278;
+}
+
+QTextEdit {
+    background-color: #1e1e2a;
+    border: 1px solid #2e2e42;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e8e6f0;
+    font-size: 13px;
+    selection-background-color: #5a48d4;
+}
+QTextEdit:focus {
+    border: 1px solid #7c6af5;
+    background-color: #22223a;
+}
+
+QListWidget {
+    background-color: #1e1e2a;
+    border: 1px solid #2e2e42;
+    border-radius: 6px;
+    color: #e8e6f0;
+    font-size: 13px;
+    padding: 5px;
+}
+QListWidget::item {
+    padding: 10px;
+    border-bottom: 1px solid #2a2a3a;
+}
+QListWidget::item:selected {
+    background-color: #2a2a3a;
+    color: #7c6af5;
 }
 
 QPushButton#cancelBtn {
@@ -333,7 +365,7 @@ class DownloadWorker(QObject):
 
         # Postprocessor args per format
         postprocessor_args = []
-        if self.audio_format == "mp3":
+        if self.audio_format in ["mp3", "aac"]:
             if self.audio_quality == "320 kbps":
                 postprocessor_args = ["-b:a", "320k"]
             elif self.audio_quality == "256 kbps":
@@ -471,7 +503,9 @@ class DownloadWorker(QObject):
             if ratelimit_kib > 0:
                 ydl_opts["ratelimit"] = ratelimit_kib * 1024
             if postprocessor_args:
-                ydl_opts["postprocessor_args"] = {"ffmpegextractaudio": postprocessor_args}
+                if "postprocessor_args" not in ydl_opts:
+                    ydl_opts["postprocessor_args"] = {}
+                ydl_opts["postprocessor_args"]["ffmpegextractaudio"] = postprocessor_args
 
             if self._cancelled:
                 self.finished.emit(False, "Cancelled.")
@@ -623,6 +657,8 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._thread = None
         self._last_output_dir_used = ""
+        self._download_queue = []
+        self._is_downloading = False
 
         self._ui_scale = 1.0
         self._build_ui()
@@ -710,21 +746,22 @@ class MainWindow(QMainWindow):
         download_layout.setContentsMargins(0, 0, 0, 0)
 
         # URL Input
-        url_group = QGroupBox("Target Playlist or Song URL")
+        url_group = QGroupBox("Target Playlist or Song URLs (One per line)")
         url_layout = QVBoxLayout(url_group)
         
         url_row = QHBoxLayout()
-        self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Paste YouTube Music URL here...")
-        self.url_input.setToolTip("Enter a YouTube Music playlist or video URL")
+        self.url_input = QTextEdit()
+        self.url_input.setPlaceholderText("Paste YouTube Music URLs here (one per line)...")
+        self.url_input.setFixedHeight(100)
+        self.url_input.setToolTip("Enter one or more YouTube Music playlist or video URLs, each on its own line")
         
         clear_url_btn = QPushButton("✕")
         clear_url_btn.setFixedWidth(40)
-        clear_url_btn.setToolTip("Clear URL")
+        clear_url_btn.setToolTip("Clear URLs")
         clear_url_btn.clicked.connect(self.url_input.clear)
         
         url_row.addWidget(self.url_input)
-        url_row.addWidget(clear_url_btn)
+        url_row.addWidget(clear_url_btn, 0, Qt.AlignmentFlag.AlignTop)
         url_layout.addLayout(url_row)
         download_layout.addWidget(url_group)
 
@@ -744,7 +781,7 @@ class MainWindow(QMainWindow):
         fmt_group = QGroupBox("Audio Format")
         fmt_layout = QVBoxLayout(fmt_group)
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["mp3", "m4a", "wav", "flac", "opus"])
+        self.format_combo.addItems(["mp3", "m4a", "aac", "wav", "flac", "opus"])
         self.format_combo.currentTextChanged.connect(self._on_format_changed)
         fmt_layout.addWidget(self.format_combo)
         settings_row.addWidget(fmt_group)
@@ -800,7 +837,30 @@ class MainWindow(QMainWindow):
         download_layout.addWidget(progress_group)
         self.tabs.addTab(download_tab, "DOWNLOAD")
 
-        # 2) SETTINGS TAB
+        # 2) QUEUE TAB
+        queue_tab = QWidget()
+        queue_layout = QVBoxLayout(queue_tab)
+        
+        queue_group = QGroupBox("Pending Downloads")
+        queue_inner_layout = QVBoxLayout(queue_group)
+        
+        self.queue_list = QListWidget()
+        queue_inner_layout.addWidget(self.queue_list)
+        
+        queue_btns = QHBoxLayout()
+        self.remove_queue_btn = QPushButton("🗑 REMOVE SELECTED")
+        self.remove_queue_btn.clicked.connect(self._remove_selected_queue)
+        self.clear_queue_btn = QPushButton("🧹 CLEAR QUEUE")
+        self.clear_queue_btn.clicked.connect(self._clear_queue)
+        
+        queue_btns.addWidget(self.remove_queue_btn)
+        queue_btns.addWidget(self.clear_queue_btn)
+        queue_inner_layout.addLayout(queue_btns)
+        
+        queue_layout.addWidget(queue_group)
+        self.tabs.addTab(queue_tab, "QUEUE")
+
+        # 3) SETTINGS TAB
         settings_tab = QWidget()
         settings_scroll_layout = QVBoxLayout(settings_tab)
         
@@ -927,7 +987,7 @@ class MainWindow(QMainWindow):
             self.quality_combo.addItems(["Lossless"])
         elif fmt == "opus":
             self.quality_combo.addItems(["Best", "192 kbps", "128 kbps", "Worst"])
-        else: # mp3, m4a
+        else: # mp3, m4a, aac
             self.quality_combo.addItems(["Best", "320 kbps", "256 kbps", "192 kbps", "128 kbps", "Worst"])
 
     def _browse_folder(self):
@@ -986,11 +1046,56 @@ class MainWindow(QMainWindow):
     def _log(self, msg):
         self.log_output.append(msg)
 
+    def _remove_selected_queue(self):
+        for item in self.queue_list.selectedItems():
+            row = self.queue_list.row(item)
+            self.queue_list.takeItem(row)
+            if row < len(self._download_queue):
+                self._download_queue.pop(row)
+        self._log(f"Removed selected items from queue. Queue size: {len(self._download_queue)}")
+
+    def _clear_queue(self):
+        self.queue_list.clear()
+        self._download_queue.clear()
+        self._log("Queue cleared.")
+
     def _start_download(self):
-        url = self.url_input.text().strip()
-        if not url:
-            self._log("✖ Error: Please enter a URL.")
+        if self._is_downloading:
             return
+
+        urls_text = self.url_input.toPlainText().strip()
+        if not urls_text:
+            if not self._download_queue:
+                self._log("✖ Error: Please enter at least one URL.")
+                return
+        else:
+            urls = [u.strip() for u in urls_text.splitlines() if u.strip()]
+            for url in urls:
+                self._download_queue.append(url)
+                self.queue_list.addItem(url)
+            self.url_input.clear()
+
+        if not self._download_queue:
+            return
+
+        self._process_queue()
+
+    def _process_queue(self):
+        if not self._download_queue:
+            self._is_downloading = False
+            self.download_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
+            self.status_label.setText("All downloads finished")
+            return
+
+        self._is_downloading = True
+        url = self._download_queue[0]
+        
+        # Update queue UI
+        item = self.queue_list.item(0)
+        if item:
+            item.setSelected(True)
+            item.setText(f"⏳ {url}")
 
         out_dir = self.folder_input.text().strip()
         if not out_dir:
@@ -1013,7 +1118,7 @@ class MainWindow(QMainWindow):
         self.download_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.open_folder_btn.setEnabled(False)
-        self.status_label.setText("Initializing...")
+        self.status_label.setText(f"Initializing: {url}")
         self.track_progress.setValue(0)
         self.overall_progress.setValue(0)
         self.info_label.setText("")
@@ -1037,7 +1142,8 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_playlist_info(self, count, title):
-        self.status_label.setText(f"Processing: {title}")
+        url_info = f" ({self._download_queue[0]})" if self._download_queue else ""
+        self.status_label.setText(f"Processing: {title}{url_info}")
         self.overall_progress.setMaximum(100)
 
     def _on_progress(self, pct, overall_pct, info):
@@ -1046,15 +1152,12 @@ class MainWindow(QMainWindow):
         self.info_label.setText(info)
 
     def _on_track_started(self, title, current, total):
-        self.status_label.setText(f"Downloading [{current}/{total}]: {title}")
+        url_info = f" ({self._download_queue[0]})" if self._download_queue else ""
+        self.status_label.setText(f"Downloading [{current}/{total}]: {title}{url_info}")
 
     def _on_download_finished(self, success, message):
         self._thread.quit()
         self._thread.wait()
-        
-        self.download_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
-        self.open_folder_btn.setEnabled(success)
         
         if success:
             self._last_output_dir_used = self._worker.output_dir
@@ -1066,12 +1169,25 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Error")
             self._log(f"✖ {message}")
 
+        # Move to next in queue
+        if self._download_queue:
+            self._download_queue.pop(0)
+            self.queue_list.takeItem(0)
+        
+        self.open_folder_btn.setEnabled(success)
+        self._process_queue()
+
     def _cancel_download(self):
         if self._worker:
             self._worker.cancel()
             self._log("⌛ Cancellation requested...")
             self.cancel_btn.setEnabled(False)
             self.status_label.setText("Cancelling...")
+            # Clear remaining queue on cancel?
+            # For now, let's just clear the queue to stop everything.
+            self._download_queue.clear()
+            self.queue_list.clear()
+            self._is_downloading = False
 
 
 if __name__ == "__main__":
