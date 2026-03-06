@@ -75,13 +75,21 @@ def main():
     # --name: Set the output binary name.
     # --clean: Clean PyInstaller cache and remove temporary files before building.
     # --hidden-import: Ensure yt-dlp is correctly included if dynamic imports fail.
+    # --add-data: Include external files (POT provider and script).
     
+    # Check if bgutil-ytdlp-pot-provider exists, otherwise try to clone it
+    pot_dir = script_dir / "bgutil-ytdlp-pot-provider"
+    if not pot_dir.exists():
+        run_command(["bash", str(script_dir / "bgutil-download.sh")], "Fetching POT provider")
+
     build_command = [
         str(pyinstaller_path),
         "--onefile",
         "--windowed",
         "--name", binary_name,
         "--clean",
+        "--add-data", f"bgutil-ytdlp-pot-provider:bgutil-ytdlp-pot-provider",
+        "--add-data", f"bgutil-download.sh:.",
         str(main_script)
     ]
 

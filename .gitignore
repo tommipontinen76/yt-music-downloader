@@ -31,4 +31,8 @@ dist/
 /src
 /pkg
 
+# Dependencies and Provider Server
+bgutil-ytdlp-pot-provider/
+*.pid
+
 *.txt

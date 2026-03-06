@@ -1,3 +1,4 @@
+#!/usr/bin/env xdg-open
 [Desktop Entry]
 Name=YT Music Downloader
 Comment=Download YouTube Music playlists and tracks via yt-dlp
