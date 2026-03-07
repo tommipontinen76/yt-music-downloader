@@ -751,7 +751,8 @@ class DownloadWorker(QObject):
                             entry = self._truncate_metadata(entry)
                         except Exception as e:
                             # 1.5) Fallback search if original is unavailable
-                            if fallback_on_unavailable and ("unavailable" in str(e).lower() or "not available" in str(e).lower()):
+                            is_unavailable = any(term in str(e).lower() for term in ["unavailable", "not available", "available in your country"])
+                            if fallback_on_unavailable and is_unavailable:
                                 title = entry.get('title') or entry.get('id')
                                 if title:
                                     self.log.emit(f"  🔍 '{title}' is unavailable. Searching for fallback...")
@@ -899,7 +900,8 @@ class DownloadWorker(QObject):
                                 entry = self._truncate_metadata(entry)
                             except Exception as e:
                                 # 1.5) Fallback search if original is unavailable
-                                if fallback_on_unavailable and ("unavailable" in str(e).lower() or "not available" in str(e).lower()):
+                                is_unavailable = any(term in str(e).lower() for term in ["unavailable", "not available", "available in your country"])
+                                if fallback_on_unavailable and is_unavailable:
                                     title = entry.get('title') or entry.get('id')
                                     if title:
                                         self.log.emit(f"  🔍 '{title}' is unavailable. Searching for fallback...")
