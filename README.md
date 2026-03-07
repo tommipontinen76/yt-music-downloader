@@ -42,7 +42,11 @@ To run the script from source, you will need:
     Or from your package manager (e.g. on Arch)
     ```bash
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     yay -S python-pyqt6 yt-dlp python-mutagen python-bgutil-ytdlp-pot-provider
+=======
+    yay -S python-pyqt6 yt-dlp python-mutagen nodejs npm
+>>>>>>> Stashed changes
 =======
     yay -S python-pyqt6 yt-dlp python-mutagen nodejs npm
 >>>>>>> Stashed changes
